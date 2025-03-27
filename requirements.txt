@@ -1,0 +1,21 @@
+# PDF Processing
+PyPDF2==3.0.1
+pdfplumber==0.10.4
+
+# Text Processing
+konlpy==0.6.0  # Korean NLP library
+nltk==3.8.1    # For text processing
+
+# OpenAI API
+openai==1.34.0
+
+# Data Processing and Export
+pandas==2.2.0
+openpyxl==3.1.2
+
+# Utilities
+tqdm==4.66.2   # Progress bars
+python-dotenv==1.0.1  # Environment variables
+
+# Testing
+pytest==8.0.0 
