@@ -14,23 +14,23 @@ import logging
 from pathlib import Path
 import time
 from dotenv import load_dotenv
+from typing import Dict, Any
 
-from src.pdf_extractor.pdf_reader import extract_text_from_pdf
-from src.text_processor.korean_processor import process_korean_text
-from src.gpt_integration.openai_client import process_with_openai
-from src.gpt_integration.openai_batch_processor import process_and_deduplicate
-from src.export.excel_exporter import export_to_excel
+from .pdf_extractor.pdf_reader import extract_text_from_pdf
+from .text_processor.korean_processor import process_korean_text
+from .gpt_integration.openai_client import process_with_openai, format_results_to_text
+from .gpt_integration.openai_batch_processor import process_and_deduplicate
+from .export.excel_exporter import export_to_csv
 
 
 # Load environment variables
 load_dotenv()
 
 
-def setup_logging(verbose=False):
+def setup_logging():
     """Set up logging configuration."""
-    log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
-        level=log_level,
+        level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[logging.StreamHandler()]
     )
@@ -42,7 +42,7 @@ def parse_arguments():
         description='Extract Korean vocabulary and grammar from PDF files.'
     )
     parser.add_argument(
-        'pdf_file', 
+        'input', 
         type=str, 
         help='Path to the PDF file to process'
     )
@@ -50,8 +50,8 @@ def parse_arguments():
         '-o', 
         '--output', 
         type=str, 
-        default='output.xlsx',
-        help='Output Excel file path (default: output.xlsx)'
+        default='output.csv',
+        help='Output CSV file path (default: output.csv)'
     )
     parser.add_argument(
         '-b', 
@@ -59,12 +59,6 @@ def parse_arguments():
         type=int, 
         default=10,
         help='Batch size for GPT processing (default: 10)'
-    )
-    parser.add_argument(
-        '-v', 
-        '--verbose', 
-        action='store_true',
-        help='Enable verbose logging'
     )
     parser.add_argument(
         '-m',
@@ -105,18 +99,58 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def process_data(args) -> Dict[str, Any]:
+    """
+    Process the input data and return results.
+    
+    Args:
+        args: Command line arguments
+        
+    Returns:
+        Dictionary containing processed results
+    """
+    # Extract text from PDF
+    pages_text = extract_text_from_pdf(args.input)
+    
+    # Process text to extract vocabulary and grammar
+    all_vocabulary = set()
+    all_grammar = []
+    
+    # Process each page
+    for page_text in pages_text:
+        result = process_korean_text(page_text)
+        all_vocabulary.update(result['vocabulary'])
+        all_grammar.extend(result['grammar'])
+    
+    # Convert to expected format
+    extracted_data = {
+        'vocabulary': sorted(list(all_vocabulary)),
+        'grammar': all_grammar
+    }
+    
+    # Skip GPT processing if requested
+    if args.skip_gpt:
+        return {
+            'vocabulary_results': [{'item': word, 'analysis': '', 'model': 'none'} for word in extracted_data['vocabulary']],
+            'grammar_results': [{'item': pattern, 'analysis': '', 'model': 'none'} for pattern in extracted_data['grammar']]
+        }
+    
+    # Process with OpenAI
+    return process_with_openai(extracted_data, batch_size=args.batch_size)
+
+
 def main():
     """Main entry point for the application."""
     start_time = time.time()
     args = parse_arguments()
-    setup_logging(args.verbose)
+    setup_logging()
     
     logger = logging.getLogger(__name__)
-    logger.info(f"Processing PDF file: {args.pdf_file}")
+    logger.info(f"Processing PDF file: {args.input}")
     
     # Step 1: Extract text from PDF
     logger.info(f"Extracting text using {args.method}...")
-    pages_text = extract_text_from_pdf(args.pdf_file, prefer_method=args.method)
+    pages_text = extract_text_from_pdf(args.input, prefer_method=args.method)
     logger.info(f"Extracted {len(pages_text)} pages")
     
     # Step 2: Process Korean text to identify vocabulary and grammar
@@ -158,21 +192,15 @@ def main():
         logger.info("Processing with GPT-4o-mini...")
         
         # Process vocab and grammar with OpenAI
-        processed_data = process_with_openai(
-            {
-                'vocabulary': vocabulary_list,
-                'grammar': all_grammar
-            }, 
-            batch_size=args.batch_size
-        )
+        processed_data = process_data(args)
         
-        # Step 4: Export results to Excel
-        logger.info(f"Exporting results to Excel: {args.output}")
-        output_path = export_to_excel(processed_data, args.output)
-        logger.info(f"Results saved to: {output_path}")
+        # Step 4: Export results to CSV
+        logger.info(f"Exporting results to CSV: {args.output}")
+        output_paths = export_to_csv(processed_data, args.output)
+        logger.info(f"Results saved to: {output_paths}")
     else:
         logger.info("Skipped GPT processing as requested")
-        # Create simple data structure for Excel export
+        # Create simple data structure for CSV export
         processed_data = {
             'vocabulary_results': [
                 {'item': word, 'analysis': '', 'model': 'N/A', 'error': False}
@@ -183,10 +211,10 @@ def main():
                 for pattern, example in all_grammar
             ]
         }
-        # Export to Excel
-        logger.info(f"Exporting results to Excel: {args.output}")
-        output_path = export_to_excel(processed_data, args.output)
-        logger.info(f"Results saved to: {output_path}")
+        # Export to CSV
+        logger.info(f"Exporting results to CSV: {args.output}")
+        output_paths = export_to_csv(processed_data, args.output)
+        logger.info(f"Results saved to: {output_paths}")
     
     elapsed_time = time.time() - start_time
     logger.info(f"Total processing time: {elapsed_time:.2f} seconds")

@@ -21,7 +21,14 @@ logger = logging.getLogger(__name__)
 # Load API key from environment variables
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
+OPENAI_ORG_ID = os.getenv("OPENAI_ORG_ID")
+
+# Extract project ID from API key if it's a project key
+PROJECT_ID = None
+if OPENAI_API_KEY and OPENAI_API_KEY.startswith("sk-proj-"):
+    # Project ID is the first part after "sk-proj-" up to the first underscore
+    PROJECT_ID = "org-" + OPENAI_API_KEY.split("sk-proj-")[1].split("_")[0]
 
 # Check if API key is available
 if not OPENAI_API_KEY:
@@ -50,7 +57,7 @@ class BatchDeduplicator:
         
         Args:
             api_key: OpenAI API key (defaults to environment variable)
-            model: Model to use (defaults to environment variable or gpt-4o-mini)
+            model: Model to use (defaults to environment variable or gpt-4)
             prompt: System prompt template (defaults to Korean deduplication)
         """
         self.api_key = api_key or OPENAI_API_KEY
@@ -63,8 +70,13 @@ class BatchDeduplicator:
         
         self.system_prompt = prompt or self.DEDUPE_PROMPT
         
-        # Initialize OpenAI client - only using new API style (v1.0.0+)
-        self.client = openai.OpenAI(api_key=self.api_key)
+        # Initialize OpenAI client with organization ID
+        client_args = {"api_key": self.api_key}
+        if OPENAI_ORG_ID:
+            client_args["organization"] = OPENAI_ORG_ID
+            logger.info(f"Using organization ID: {OPENAI_ORG_ID}")
+        
+        self.client = openai.OpenAI(**client_args)
     
     def process_batch(self, words: List[str], max_retries=3) -> List[str]:
         """

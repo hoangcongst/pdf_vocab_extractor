@@ -1,39 +1,110 @@
 """
-Excel Export Module
+CSV Export Module
 
-This module handles exporting processed Korean vocabulary and grammar to Excel.
+This module handles exporting processed Korean vocabulary and grammar to CSV files.
 """
 
 import os
 import logging
+import json
 from typing import List, Dict, Any
 from pathlib import Path
 import datetime
 
 import pandas as pd
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
 
+from ..gpt_integration.openai_client import format_word_analysis
 
 logger = logging.getLogger(__name__)
 
 
-class ExcelExporter:
-    """Class to export data to Excel."""
+class CSVExporter:
+    """Class to export data to CSV files."""
     
     def __init__(self, output_path=None):
         """
-        Initialize the Excel exporter.
+        Initialize the CSV exporter.
         
         Args:
-            output_path: Path to the output Excel file
+            output_path: Base path for output CSV files
         """
-        self.output_path = output_path or f"korean_vocab_grammar_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        if output_path:
+            self.output_dir = Path(output_path).parent
+            self.base_name = Path(output_path).stem
+        else:
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            self.output_dir = Path('.')
+            self.base_name = f"korean_vocab_grammar_{timestamp}"
+
+    def format_analysis_as_html(self, text: str) -> str:
+        """
+        Format analysis text as HTML using basic tags.
+        
+        Args:
+            text: Raw analysis text
+            
+        Returns:
+            HTML formatted text
+        """
+        if not text:
+            return ""
+        
+        # Split into sections
+        sections = text.split('\n\n')
+        html_parts = ['<div>']
+        
+        for section in sections:
+            if not section.strip():
+                continue
+                
+            # Handle section titles
+            if section.startswith('Từ:'):
+                html_parts.append('<h3>Từ vựng</h3>')
+                continue
+            elif section.startswith('Nghĩa:'):
+                html_parts.append('<h4>Nghĩa</h4>')
+                lines = section.split('\n')[1:]  # Skip the "Nghĩa:" line
+                html_parts.append('<ul>')
+                for line in lines:
+                    if line.strip():
+                        html_parts.append(f'<li>{line.strip()}</li>')
+                html_parts.append('</ul>')
+            elif section.startswith('Ví dụ:'):
+                html_parts.append('<h4>Ví dụ</h4>')
+                lines = section.split('\n')[1:]  # Skip the "Ví dụ:" line
+                html_parts.append('<ul>')
+                for i in range(0, len(lines), 2):
+                    if i + 1 < len(lines):
+                        korean = lines[i].strip().lstrip('- ')
+                        vietnamese = lines[i + 1].strip()
+                        html_parts.append(f'<li><b>{korean}</b><br>{vietnamese}</li>')
+                html_parts.append('</ul>')
+            elif section.startswith('Tip để nhớ từ:'):
+                html_parts.append('<h4>Tip để nhớ từ</h4>')
+                content = section.split('\n', 1)[1].strip()
+                html_parts.append(f'<p>{content}</p>')
+            elif section.startswith('Phân tích Hán tự:'):
+                html_parts.append('<h4>Phân tích Hán tự</h4>')
+                content = section.split('\n', 1)[1].strip()
+                html_parts.append(f'<p>{content}</p>')
+            elif section.startswith('Ngữ pháp:'):
+                html_parts.append('<h4>Ngữ pháp</h4>')
+                lines = section.split('\n')[1:]
+                html_parts.append('<ul>')
+                for line in lines:
+                    if line.strip():
+                        html_parts.append(f'<li>{line.strip()}</li>')
+                html_parts.append('</ul>')
+            else:
+                # Generic section
+                html_parts.append(f'<p>{section.strip()}</p>')
+        
+        html_parts.append('</div>')
+        return ''.join(html_parts)
     
     def format_vocabulary_data(self, vocabulary_results: List[Dict]) -> pd.DataFrame:
         """
-        Format vocabulary results for Excel export.
+        Format vocabulary results for CSV export.
         
         Args:
             vocabulary_results: List of dictionaries with vocabulary analysis
@@ -44,18 +115,25 @@ class ExcelExporter:
         data = []
         
         for item in vocabulary_results:
+            if isinstance(item.get('analysis'), dict):
+                # Format the analysis into readable text
+                formatted_analysis = format_word_analysis(item['analysis'])
+            else:
+                formatted_analysis = str(item.get('analysis', ''))
+            
+            # Format analysis as HTML
+            html_analysis = self.format_analysis_as_html(formatted_analysis)
+            
             data.append({
                 'Word': item['item'],
-                'Analysis': item['analysis'],
-                'Model': item['model'],
-                'Has Error': 'Yes' if item.get('error', False) else 'No'
+                'Analysis': html_analysis
             })
         
         return pd.DataFrame(data)
     
     def format_grammar_data(self, grammar_results: List[Dict]) -> pd.DataFrame:
         """
-        Format grammar results for Excel export.
+        Format grammar results for CSV export.
         
         Args:
             grammar_results: List of dictionaries with grammar analysis
@@ -66,139 +144,61 @@ class ExcelExporter:
         data = []
         
         for item in grammar_results:
-            # Extract pattern and example from the item
-            original_item = item['item']
+            if isinstance(item.get('analysis'), dict):
+                # Format the analysis into readable text
+                formatted_analysis = format_word_analysis(item['analysis'])
+            else:
+                formatted_analysis = str(item.get('analysis', ''))
             
-            # Try to extract pattern and example from the formatted text
-            try:
-                parts = original_item.split('\n')
-                pattern = parts[0].replace('문법: ', '')
-                example = parts[1].replace('예문: ', '')
-            except:
-                pattern = original_item
-                example = ""
+            # Format analysis as HTML
+            html_analysis = self.format_analysis_as_html(formatted_analysis)
             
             data.append({
-                'Grammar Pattern': pattern,
-                'Example': example, 
-                'Analysis': item['analysis'],
-                'Model': item['model'],
-                'Has Error': 'Yes' if item.get('error', False) else 'No'
+                'Pattern': item['item'],
+                'Analysis': html_analysis
             })
         
         return pd.DataFrame(data)
     
-    def export_to_excel(self, results: Dict) -> str:
+    def export(self, data: Dict) -> Dict[str, str]:
         """
-        Export processed data to Excel.
+        Export data to CSV files.
         
         Args:
-            results: Dictionary with vocabulary and grammar results
+            data: Dictionary containing vocabulary and grammar results
             
         Returns:
-            Path to the exported Excel file
+            Dictionary with paths to the exported CSV files
         """
-        logger.info(f"Exporting data to Excel: {self.output_path}")
+        output_paths = {}
         
-        # Create DataFrames for vocabulary and grammar
-        vocabulary_df = self.format_vocabulary_data(results['vocabulary_results'])
-        grammar_df = self.format_grammar_data(results['grammar_results'])
+        # Format and export vocabulary
+        if 'vocabulary_results' in data:
+            vocab_df = self.format_vocabulary_data(data['vocabulary_results'])
+            vocab_path = self.output_dir / f"{self.base_name}_vocabulary.csv"
+            vocab_df.to_csv(vocab_path, index=False, encoding='utf-8', quoting=1, header=False)  # Skip header
+            output_paths['vocabulary'] = str(vocab_path)
         
-        # Create a Pandas Excel writer
-        with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
-            # Write vocabulary data
-            vocabulary_df.to_excel(writer, sheet_name='Vocabulary', index=False)
-            
-            # Write grammar data
-            grammar_df.to_excel(writer, sheet_name='Grammar', index=False)
-            
-            # Auto-adjust column widths for both sheets
-            for sheet_name in writer.sheets:
-                worksheet = writer.sheets[sheet_name]
-                
-                for idx, col in enumerate(worksheet.columns, 1):
-                    max_length = 0
-                    column = get_column_letter(idx)
-                    
-                    for cell in col:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = min(len(str(cell.value)), 100)  # Limit width to 100 characters
-                        except:
-                            pass
-                    
-                    adjusted_width = (max_length + 2) * 1.2
-                    worksheet.column_dimensions[column].width = adjusted_width
+        # Format and export grammar
+        if 'grammar_results' in data:
+            grammar_df = self.format_grammar_data(data['grammar_results'])
+            grammar_path = self.output_dir / f"{self.base_name}_grammar.csv"
+            grammar_df.to_csv(grammar_path, index=False, encoding='utf-8', quoting=1, header=False)  # Skip header
+            output_paths['grammar'] = str(grammar_path)
         
-        logger.info(f"Data exported successfully to {self.output_path}")
-        return self.output_path
-    
-    def _apply_formatting(self, workbook: Workbook) -> None:
-        """
-        Apply formatting to the workbook.
-        
-        Args:
-            workbook: Excel workbook to format
-        """
-        # Define styles
-        header_font = Font(bold=True, size=12)
-        header_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
-        centered_alignment = Alignment(horizontal='center', vertical='center')
-        border = Border(
-            left=Side(style='thin'), 
-            right=Side(style='thin'), 
-            top=Side(style='thin'), 
-            bottom=Side(style='thin')
-        )
-        
-        # Apply formatting to each sheet
-        for sheet_name in workbook.sheetnames:
-            worksheet = workbook[sheet_name]
-            
-            # Format headers
-            for cell in worksheet[1]:
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.alignment = centered_alignment
-                cell.border = border
-            
-            # Adjust row heights
-            for i, row in enumerate(worksheet.rows, 1):
-                worksheet.row_dimensions[i].height = 20
-    
-    def apply_formatting(self) -> None:
-        """
-        Apply formatting to the exported Excel file.
-        """
-        try:
-            from openpyxl import load_workbook
-            
-            # Load the existing workbook
-            workbook = load_workbook(self.output_path)
-            
-            # Apply formatting
-            self._apply_formatting(workbook)
-            
-            # Save the workbook
-            workbook.save(self.output_path)
-            logger.info("Applied formatting to Excel file")
-            
-        except Exception as e:
-            logger.warning(f"Failed to apply formatting: {e}")
+        return output_paths
 
 
-def export_to_excel(results: Dict, output_path: str = None) -> str:
+def export_to_csv(data: Dict, output_path: str) -> Dict[str, str]:
     """
-    Convenience function to export data to Excel.
+    Convenience function to export data to CSV files.
     
     Args:
-        results: Dictionary with vocabulary and grammar results
-        output_path: Path to the output Excel file
+        data: Dictionary containing vocabulary and grammar results
+        output_path: Base path for the CSV files
         
     Returns:
-        Path to the exported Excel file
+        Dictionary with paths to the exported CSV files
     """
-    exporter = ExcelExporter(output_path)
-    path = exporter.export_to_excel(results)
-    exporter.apply_formatting()
-    return path 
+    exporter = CSVExporter(output_path)
+    return exporter.export(data) 
