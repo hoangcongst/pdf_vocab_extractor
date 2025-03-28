@@ -417,27 +417,31 @@ class OpenAIProcessor:
         return asyncio.run(self.process_grammar_async(grammar, batch_size))
 
 
-async def process_with_openai_async(data: Dict, batch_size: int = 10) -> Dict:
+async def process_with_openai_async(data: Dict[str, Any], batch_size: int = 5) -> Dict[str, Any]:
     """
-    Async convenience function to process data with OpenAI.
+    Process data asynchronously using OpenAI API.
+    Args:
+        data (Dict[str, Any]): Data containing vocabulary and/or grammar items
+        batch_size (int): Number of items to process in each batch
+    Returns:
+        Dict[str, Any]: Processed data with OpenAI responses
     """
-    try:
-        processor = OpenAIProcessor()
-        
-        # Process vocabulary and grammar concurrently
-        vocabulary_task = processor.process_vocabulary_async(data['vocabulary'], batch_size)
-        grammar_task = processor.process_grammar_async(data['grammar'], batch_size // 2)
-        
-        vocabulary_results, grammar_results = await asyncio.gather(vocabulary_task, grammar_task)
-        
-        return {
-            'vocabulary_results': vocabulary_results,
-            'grammar_results': grammar_results
-        }
-        
-    except Exception as e:
-        logger.error(f"Error processing with OpenAI: {str(e)}")
-        raise
+    processor = OpenAIProcessor()
+    
+    # Process vocabulary if present
+    vocabulary_results = []
+    if 'vocabulary' in data:
+        vocabulary_results = await processor.process_vocabulary_async(data['vocabulary'], batch_size)
+    
+    # Process grammar if present
+    grammar_results = []
+    if 'grammar' in data:
+        grammar_results = await processor.process_grammar_async(data['grammar'], batch_size // 2)
+    
+    return {
+        'vocabulary_results': vocabulary_results,
+        'grammar_results': grammar_results
+    }
 
 def process_with_openai(data: Dict, batch_size: int = 10) -> Dict:
     """
@@ -447,130 +451,166 @@ def process_with_openai(data: Dict, batch_size: int = 10) -> Dict:
 
 def format_word_analysis(word_data: Dict) -> str:
     """
-    Format a word's analysis data into a readable text format.
+    Format a word's analysis data into HTML format.
     
     Args:
         word_data: Dictionary containing word analysis data
         
     Returns:
-        Formatted string with the analysis
+        Formatted HTML string with the analysis
     """
     try:
         output = []
         
         # Add word and meanings
-        word = word_data.get('word', '')
-        output.append(f"Từ: {word}")
+        word = word_data.get('item', '')
+        analysis = word_data.get('analysis', {})
+        if isinstance(analysis, str):
+            # Handle error case where analysis is a string
+            return f'<div class="word-analysis error"><h3>{word}</h3><pre>{analysis}</pre></div>'
+            
+        output.append(f'<div class="word-analysis">')
+        output.append(f'<h3 class="word">{word}</h3>')
         
         # Handle meanings
         try:
-            if meanings := word_data.get('meanings', []):
+            meanings = analysis.get('meanings', [])
+            if meanings:
+                output.append('<div class="meanings">')
+                output.append('<h4>Nghĩa:</h4>')
+                output.append('<ul>')
                 if isinstance(meanings, list):
-                    output.append("\nNghĩa:")
-                    for i, meaning in enumerate(meanings, 1):
-                        output.append(f"{i}. {meaning}")
+                    for meaning in meanings:
+                        output.append(f'<li>{meaning}</li>')
                 elif isinstance(meanings, str):
-                    output.append("\nNghĩa:")
-                    output.append(f"1. {meanings}")
+                    output.append(f'<li>{meanings}</li>')
+                output.append('</ul>')
+                output.append('</div>')
         except Exception as e:
-            logger.warning(f"Error formatting meanings: {str(e)}")
+            logger.warning(f"Error formatting meanings for {word}: {str(e)}")
         
         # Handle examples
         try:
-            if examples := word_data.get('examples'):
-                output.append("\nVí dụ:")
+            examples = analysis.get('examples', {})
+            if examples:
+                output.append('<div class="examples">')
+                output.append('<h4>Ví dụ:</h4>')
+                output.append('<ul>')
                 if isinstance(examples, dict):
-                    # Handle dictionary format (from test data)
                     for meaning_examples in examples.values():
                         if isinstance(meaning_examples, list):
                             for example in meaning_examples:
                                 if isinstance(example, dict):
-                                    output.append(f"- {example.get('korean', '')}")
-                                    output.append(f"  {example.get('vietnamese', '')}")
+                                    output.append('<li>')
+                                    output.append(f'<p class="korean">{example.get("korean", "")}</p>')
+                                    output.append(f'<p class="vietnamese">{example.get("vietnamese", "")}</p>')
+                                    output.append('</li>')
                 elif isinstance(examples, list):
-                    # Handle list format (from OpenAI response)
                     for example in examples:
                         if isinstance(example, dict):
-                            output.append(f"- {example.get('korean', '')}")
-                            output.append(f"  {example.get('vietnamese', '')}")
+                            output.append('<li>')
+                            output.append(f'<p class="korean">{example.get("korean", "")}</p>')
+                            output.append(f'<p class="vietnamese">{example.get("vietnamese", "")}</p>')
+                            output.append('</li>')
                         elif isinstance(example, str):
-                            output.append(f"- {example}")
+                            output.append(f'<li>{example}</li>')
+                output.append('</ul>')
+                output.append('</div>')
         except Exception as e:
-            logger.warning(f"Error formatting examples: {str(e)}")
+            logger.warning(f"Error formatting examples for {word}: {str(e)}")
         
         # Handle memory tip
         try:
-            if memory_tip := word_data.get('memory_tip'):
-                output.append(f"\nTip để nhớ từ:")
-                output.append(str(memory_tip))
+            memory_tip = analysis.get('memory_tip')
+            if memory_tip:
+                output.append('<div class="memory-tip">')
+                output.append('<h4>Tip để nhớ từ:</h4>')
+                output.append(f'<p>{memory_tip}</p>')
+                output.append('</div>')
         except Exception as e:
-            logger.warning(f"Error formatting memory tip: {str(e)}")
+            logger.warning(f"Error formatting memory tip for {word}: {str(e)}")
         
         # Handle Hanja analysis
         try:
-            if hanja := word_data.get('hanja_analysis'):
-                output.append("\nPhân tích Hán tự:")
+            hanja = analysis.get('hanja_analysis', {})
+            if hanja:
+                output.append('<div class="hanja-analysis">')
+                output.append('<h4>Phân tích Hán tự:</h4>')
                 if isinstance(hanja, dict):
                     if explanation := hanja.get('explanation'):
-                        output.append(str(explanation))
+                        output.append(f'<p>{explanation}</p>')
                     if related_words := hanja.get('related_words', []):
                         if isinstance(related_words, list):
-                            output.append("\nTừ liên quan:")
+                            output.append('<div class="related-words">')
+                            output.append('<h5>Từ liên quan:</h5>')
+                            output.append('<ul>')
                             for word in related_words:
-                                output.append(f"- {word}")
+                                output.append(f'<li>{word}</li>')
+                            output.append('</ul>')
+                            output.append('</div>')
                 elif isinstance(hanja, str):
-                    output.append(hanja)
+                    output.append(f'<p>{hanja}</p>')
+                output.append('</div>')
         except Exception as e:
-            logger.warning(f"Error formatting Hanja analysis: {str(e)}")
+            logger.warning(f"Error formatting Hanja analysis for {word}: {str(e)}")
         
         # Handle grammar points
         try:
-            if grammar := word_data.get('grammar_points'):
-                output.append("\nNgữ pháp:")
+            grammar = analysis.get('grammar_points', {})
+            if grammar:
+                output.append('<div class="grammar-points">')
+                output.append('<h4>Ngữ pháp:</h4>')
                 if isinstance(grammar, dict):
+                    output.append('<ul>')
                     if usage := grammar.get('usage'):
-                        output.append(f"Cách dùng: {usage}")
+                        output.append(f'<li><strong>Cách dùng:</strong> {usage}</li>')
                     if conjugation := grammar.get('conjugation'):
-                        output.append(f"Cách chia: {conjugation}")
+                        output.append(f'<li><strong>Cách chia:</strong> {conjugation}</li>')
                     if formality := grammar.get('formality'):
-                        output.append(f"Mức độ trang trọng: {formality}")
+                        output.append(f'<li><strong>Mức độ trang trọng:</strong> {formality}</li>')
+                    output.append('</ul>')
                 elif isinstance(grammar, str):
-                    output.append(grammar)
+                    output.append(f'<p>{grammar}</p>')
+                output.append('</div>')
         except Exception as e:
-            logger.warning(f"Error formatting grammar points: {str(e)}")
+            logger.warning(f"Error formatting grammar points for {word}: {str(e)}")
         
+        output.append('</div>')  # Close word-analysis div
         return "\n".join(output)
         
     except Exception as e:
-        logger.error(f"Error formatting word analysis: {str(e)}")
-        # Return a basic format with the raw data
-        return f"Từ: {word_data.get('item', '')}\n\nPhân tích:\n{str(word_data)}"
+        logger.error(f"Error formatting word analysis for {word_data.get('item', '')}: {str(e)}")
+        # Return a basic HTML format with the raw data
+        return f'<div class="word-analysis error"><h3>{word_data.get("item", "")}</h3><pre>{str(word_data)}</pre></div>'
 
 def format_results_to_text(results: List[Dict]) -> str:
     """
-    Format a list of word analysis results into readable text.
+    Format a list of word analysis results into HTML.
     
     Args:
         results: List of dictionaries containing word analysis
         
     Returns:
-        Formatted string with all analyses
+        Formatted HTML string with all analyses
     """
     if not results:
         return ""
         
-    output = []
+    output = ['<div class="vocabulary-results">']
     
     for result in results:
         if isinstance(result.get('analysis'), dict):
             # If analysis is already a dictionary, use it directly
-            word_data = result['analysis']
+            word_data = {
+                'item': result['item'],
+                **result['analysis']
+            }
             formatted_analysis = format_word_analysis(word_data)
         else:
             # If analysis is a string, create a simple format
-            formatted_analysis = f"Từ: {result['item']}\n\nPhân tích:\n{result['analysis']}"
+            formatted_analysis = f'<div class="word-analysis error"><h3>{result["item"]}</h3><pre>{result["analysis"]}</pre></div>'
         
         output.append(formatted_analysis)
-        output.append("\n" + "="*40 + "\n")  # Separator between words
     
+    output.append('</div>')  # Close vocabulary-results div
     return "\n".join(output) 
