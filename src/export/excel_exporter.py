@@ -49,58 +49,72 @@ class CSVExporter:
         if not text:
             return ""
         
-        # Split into sections
-        sections = text.split('\n\n')
-        html_parts = ['<div>']
-        
-        for section in sections:
-            if not section.strip():
-                continue
-                
-            # Handle section titles
-            if section.startswith('Từ:'):
-                html_parts.append('<h3>Từ vựng</h3>')
-                continue
-            elif section.startswith('Nghĩa:'):
-                html_parts.append('<h4>Nghĩa</h4>')
-                lines = section.split('\n')[1:]  # Skip the "Nghĩa:" line
-                html_parts.append('<ul>')
-                for line in lines:
-                    if line.strip():
-                        html_parts.append(f'<li>{line.strip()}</li>')
-                html_parts.append('</ul>')
-            elif section.startswith('Ví dụ:'):
-                html_parts.append('<h4>Ví dụ</h4>')
-                lines = section.split('\n')[1:]  # Skip the "Ví dụ:" line
-                html_parts.append('<ul>')
-                for i in range(0, len(lines), 2):
-                    if i + 1 < len(lines):
-                        korean = lines[i].strip().lstrip('- ')
-                        vietnamese = lines[i + 1].strip()
-                        html_parts.append(f'<li><b>{korean}</b><br>{vietnamese}</li>')
-                html_parts.append('</ul>')
-            elif section.startswith('Tip để nhớ từ:'):
-                html_parts.append('<h4>Tip để nhớ từ</h4>')
-                content = section.split('\n', 1)[1].strip()
-                html_parts.append(f'<p>{content}</p>')
-            elif section.startswith('Phân tích Hán tự:'):
-                html_parts.append('<h4>Phân tích Hán tự</h4>')
-                content = section.split('\n', 1)[1].strip()
-                html_parts.append(f'<p>{content}</p>')
-            elif section.startswith('Ngữ pháp:'):
-                html_parts.append('<h4>Ngữ pháp</h4>')
-                lines = section.split('\n')[1:]
-                html_parts.append('<ul>')
-                for line in lines:
-                    if line.strip():
-                        html_parts.append(f'<li>{line.strip()}</li>')
-                html_parts.append('</ul>')
-            else:
-                # Generic section
-                html_parts.append(f'<p>{section.strip()}</p>')
-        
-        html_parts.append('</div>')
-        return ''.join(html_parts)
+        try:
+            # Split into sections
+            sections = text.split('\n\n')
+            html_parts = ['<div>']
+            
+            for section in sections:
+                if not section.strip():
+                    continue
+                    
+                try:
+                    # Handle section titles
+                    if section.startswith('Từ:'):
+                        html_parts.append('<h3>Từ vựng</h3>')
+                        continue
+                    elif section.startswith('Nghĩa:'):
+                        html_parts.append('<h4>Nghĩa</h4>')
+                        lines = section.split('\n')[1:] if len(section.split('\n')) > 1 else []
+                        html_parts.append('<ul>')
+                        for line in lines:
+                            if line.strip():
+                                html_parts.append(f'<li>{line.strip()}</li>')
+                        html_parts.append('</ul>')
+                    elif section.startswith('Ví dụ:'):
+                        html_parts.append('<h4>Ví dụ</h4>')
+                        lines = section.split('\n')[1:] if len(section.split('\n')) > 1 else []
+                        html_parts.append('<ul>')
+                        for i in range(0, len(lines), 2):
+                            try:
+                                if i + 1 < len(lines):
+                                    korean = lines[i].strip().lstrip('- ')
+                                    vietnamese = lines[i + 1].strip()
+                                    html_parts.append(f'<li><b>{korean}</b><br>{vietnamese}</li>')
+                            except Exception as e:
+                                logger.warning(f"Error formatting example: {str(e)}")
+                        html_parts.append('</ul>')
+                    elif section.startswith('Tip để nhớ từ:'):
+                        html_parts.append('<h4>Tip để nhớ từ</h4>')
+                        content = section.split('\n', 1)[1].strip() if len(section.split('\n')) > 1 else section.replace('Tip để nhớ từ:', '').strip()
+                        html_parts.append(f'<p>{content}</p>')
+                    elif section.startswith('Phân tích Hán tự:'):
+                        html_parts.append('<h4>Phân tích Hán tự</h4>')
+                        content = section.split('\n', 1)[1].strip() if len(section.split('\n')) > 1 else section.replace('Phân tích Hán tự:', '').strip()
+                        html_parts.append(f'<p>{content}</p>')
+                    elif section.startswith('Ngữ pháp:'):
+                        html_parts.append('<h4>Ngữ pháp</h4>')
+                        lines = section.split('\n')[1:] if len(section.split('\n')) > 1 else []
+                        html_parts.append('<ul>')
+                        for line in lines:
+                            if line.strip():
+                                html_parts.append(f'<li>{line.strip()}</li>')
+                        html_parts.append('</ul>')
+                    else:
+                        # Generic section
+                        html_parts.append(f'<p>{section.strip()}</p>')
+                except Exception as e:
+                    logger.warning(f"Error formatting section '{section[:50]}...': {str(e)}")
+                    # Add the section as plain text if formatting fails
+                    html_parts.append(f'<p>{section.strip()}</p>')
+            
+            html_parts.append('</div>')
+            return ''.join(html_parts)
+            
+        except Exception as e:
+            logger.error(f"Error formatting analysis as HTML: {str(e)}")
+            # Return a basic HTML format with the raw text
+            return f'<div><p>{text}</p></div>'
     
     def format_vocabulary_data(self, vocabulary_results: List[Dict]) -> pd.DataFrame:
         """

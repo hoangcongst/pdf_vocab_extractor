@@ -128,3 +128,11 @@ test_output.xlsx
 
 # Cursor specific
 .cursor/ 
+*.csv
+*.xlsx
+*.pdf
+*.txt
+*.json
+*.jsonl
+*.jsonl.gz
+*.jsonl.tar.gz

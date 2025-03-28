@@ -455,50 +455,96 @@ def format_word_analysis(word_data: Dict) -> str:
     Returns:
         Formatted string with the analysis
     """
-    output = []
-    
-    # Add word and meanings
-    output.append(f"Từ: {word_data.get('word', '')}")
-    
-    if meanings := word_data.get('meanings', []):
-        output.append("\nNghĩa:")
-        for i, meaning in enumerate(meanings, 1):
-            output.append(f"{i}. {meaning}")
-    
-    # Add examples
-    if examples := word_data.get('examples', {}):
-        output.append("\nVí dụ:")
-        for meaning_key, meaning_examples in examples.items():
-            for example in meaning_examples:
-                output.append(f"- {example.get('korean', '')}")
-                output.append(f"  {example.get('vietnamese', '')}")
-    
-    # Add memory tip
-    if memory_tip := word_data.get('memory_tip'):
-        output.append(f"\nTip để nhớ từ:")
-        output.append(memory_tip)
-    
-    # Add Hanja analysis if available
-    if hanja := word_data.get('hanja_analysis', {}):
-        output.append("\nPhân tích Hán tự:")
-        if explanation := hanja.get('explanation'):
-            output.append(explanation)
-        if related_words := hanja.get('related_words', []):
-            output.append("\nTừ liên quan:")
-            for word in related_words:
-                output.append(f"- {word}")
-    
-    # Add grammar points if available
-    if grammar := word_data.get('grammar_points', {}):
-        output.append("\nNgữ pháp:")
-        if usage := grammar.get('usage'):
-            output.append(f"Cách dùng: {usage}")
-        if conjugation := grammar.get('conjugation'):
-            output.append(f"Cách chia: {conjugation}")
-        if formality := grammar.get('formality'):
-            output.append(f"Mức độ trang trọng: {formality}")
-    
-    return "\n".join(output)
+    try:
+        output = []
+        
+        # Add word and meanings
+        word = word_data.get('word', '')
+        output.append(f"Từ: {word}")
+        
+        # Handle meanings
+        try:
+            if meanings := word_data.get('meanings', []):
+                if isinstance(meanings, list):
+                    output.append("\nNghĩa:")
+                    for i, meaning in enumerate(meanings, 1):
+                        output.append(f"{i}. {meaning}")
+                elif isinstance(meanings, str):
+                    output.append("\nNghĩa:")
+                    output.append(f"1. {meanings}")
+        except Exception as e:
+            logger.warning(f"Error formatting meanings: {str(e)}")
+        
+        # Handle examples
+        try:
+            if examples := word_data.get('examples'):
+                output.append("\nVí dụ:")
+                if isinstance(examples, dict):
+                    # Handle dictionary format (from test data)
+                    for meaning_examples in examples.values():
+                        if isinstance(meaning_examples, list):
+                            for example in meaning_examples:
+                                if isinstance(example, dict):
+                                    output.append(f"- {example.get('korean', '')}")
+                                    output.append(f"  {example.get('vietnamese', '')}")
+                elif isinstance(examples, list):
+                    # Handle list format (from OpenAI response)
+                    for example in examples:
+                        if isinstance(example, dict):
+                            output.append(f"- {example.get('korean', '')}")
+                            output.append(f"  {example.get('vietnamese', '')}")
+                        elif isinstance(example, str):
+                            output.append(f"- {example}")
+        except Exception as e:
+            logger.warning(f"Error formatting examples: {str(e)}")
+        
+        # Handle memory tip
+        try:
+            if memory_tip := word_data.get('memory_tip'):
+                output.append(f"\nTip để nhớ từ:")
+                output.append(str(memory_tip))
+        except Exception as e:
+            logger.warning(f"Error formatting memory tip: {str(e)}")
+        
+        # Handle Hanja analysis
+        try:
+            if hanja := word_data.get('hanja_analysis'):
+                output.append("\nPhân tích Hán tự:")
+                if isinstance(hanja, dict):
+                    if explanation := hanja.get('explanation'):
+                        output.append(str(explanation))
+                    if related_words := hanja.get('related_words', []):
+                        if isinstance(related_words, list):
+                            output.append("\nTừ liên quan:")
+                            for word in related_words:
+                                output.append(f"- {word}")
+                elif isinstance(hanja, str):
+                    output.append(hanja)
+        except Exception as e:
+            logger.warning(f"Error formatting Hanja analysis: {str(e)}")
+        
+        # Handle grammar points
+        try:
+            if grammar := word_data.get('grammar_points'):
+                output.append("\nNgữ pháp:")
+                if isinstance(grammar, dict):
+                    if usage := grammar.get('usage'):
+                        output.append(f"Cách dùng: {usage}")
+                    if conjugation := grammar.get('conjugation'):
+                        output.append(f"Cách chia: {conjugation}")
+                    if formality := grammar.get('formality'):
+                        output.append(f"Mức độ trang trọng: {formality}")
+                elif isinstance(grammar, str):
+                    output.append(grammar)
+        except Exception as e:
+            logger.warning(f"Error formatting grammar points: {str(e)}")
+        
+        return "\n".join(output)
+        
+    except Exception as e:
+        logger.error(f"Error formatting word analysis: {str(e)}")
+        # Return a basic format with the raw data
+        return f"Từ: {word_data.get('item', '')}\n\nPhân tích:\n{str(word_data)}"
 
 def format_results_to_text(results: List[Dict]) -> str:
     """
